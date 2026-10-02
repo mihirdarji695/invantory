@@ -1,0 +1,97 @@
+// Inventory Barcode — Prisma schema (SQLite)
+// Money is stored as INTEGER paise (1 INR = 100 paise) to avoid floating-point
+// rounding errors. Convert at the UI/CSV boundary with lib/money.ts.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum BarcodeType {
+  CODE128
+  EAN13
+  UPCA
+}
+
+enum MovementType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  RETURN
+  DAMAGED
+  LOST
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  isSample    Boolean   @default(false)
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Product {
+  id           String          @id @default(cuid())
+  name         String
+  sku          String          @unique
+  barcode      String          @unique
+  barcodeType  BarcodeType     @default(CODE128)
+  brand        String?
+  description  String?
+  categoryId   String?
+  category     Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  stock        Int             @default(0)
+  minStock     Int             @default(0)
+  maxStock     Int?
+  unit         String          @default("pcs")
+  costPrice    Int             @default(0) // paise
+  sellingPrice Int             @default(0) // paise
+  image        String?         // file name inside data/uploads
+  isSample     Boolean         @default(false)
+  movements    StockMovement[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([name])
+  @@index([categoryId])
+  @@index([stock])
+  @@index([createdAt])
+}
+
+/// Movements are an audit log. If a product is deleted, its history is kept
+/// (productId becomes NULL) and the snapshot columns still identify it.
+model StockMovement {
+  id            String       @id @default(cuid())
+  productId     String?
+  product       Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName   String
+  barcode       String
+  type          MovementType
+  quantity      Int // signed change applied to stock (+ in, - out)
+  previousStock Int
+  newStock      Int
+  reason        String?
+  createdAt     DateTime     @default(now())
+
+  @@index([productId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([barcode])
+}
+
+/// Single-row settings table (id is always 1).
+model Settings {
+  id                 Int         @id @default(1)
+  inventoryName      String      @default("My Inventory")
+  currency           String      @default("INR")
+  defaultBarcodeType BarcodeType @default(CODE128)
+  defaultUnit        String      @default("pcs")
+  lowStockThreshold  Int         @default(5)
+  updatedAt          DateTime    @updatedAt
+}
